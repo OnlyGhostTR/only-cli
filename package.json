@@ -1,0 +1,50 @@
+{
+  "name": "onlycli",
+  "version": "2.0.2",
+  "description": "BYOK AI agent CLI - Terminal'den AI ile kod yazın",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "bin": {
+    "onlycli": "dist/bin/onlycli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx bin/onlycli.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "cli",
+    "ai",
+    "agent",
+    "byok",
+    "anthropic",
+    "gemini"
+  ],
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.65.0",
+    "@google/genai": "1.28.0",
+    "@inquirer/prompts": "7.8.6",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "commander": "14.0.1",
+    "diff": "8.0.4",
+    "openai": "6.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.8",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  },
+  "optionalDependencies": {
+    "@napi-rs/keyring": "1.3.0"
+  }
+}
