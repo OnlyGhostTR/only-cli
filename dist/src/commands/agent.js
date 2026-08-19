@@ -79,8 +79,11 @@ async function runChat(options) {
         ...(providerId ? { providerId } : {}),
         ...(options.model ? { model: options.model } : {}),
         ...(baseUrl ? { baseUrl } : {}),
-        autoApprove: options.yes === true,
-        web: options.web !== false,
+        // Flags are only forwarded when actually given, so a saved preference is
+        // not overwritten by commander's defaults. `--no-web` is the only web
+        // flag, so `web: true` carries no user intent.
+        ...(options.yes === true ? { autoApprove: true } : {}),
+        ...(options.web === false ? { web: false } : {}),
     });
     for (const path of options.file ?? []) {
         if (isSensitivePath(path)) {
@@ -116,8 +119,9 @@ async function runOnce(prompt, options) {
         ...(providerId ? { providerId } : {}),
         ...(options.model ? { model: options.model } : {}),
         ...(baseUrl ? { baseUrl } : {}),
-        autoApprove: options.yes === true,
-        web: options.web !== false,
+        // Same one-shot rule as chat: absent flag means "use the saved preference".
+        ...(options.yes === true ? { autoApprove: true } : {}),
+        ...(options.web === false ? { web: false } : {}),
     });
     ui.header(`${provider.displayName} ${theme.frame("/")} ${session.model}`);
     ui.rule();

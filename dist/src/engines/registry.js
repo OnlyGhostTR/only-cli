@@ -1,6 +1,11 @@
 /**
  * Game engine registry - defines all supported engines
  */
+/**
+ * Community MCP server for Godot. Pinned so a breaking upstream release can't
+ * silently change the tool surface underneath us.
+ */
+export const GODOT_MCP_PACKAGE = '@coding-solo/godot-mcp@0.1.1';
 export const ENGINES = {
     'roblox-studio': {
         id: 'roblox-studio',
@@ -34,21 +39,30 @@ export const ENGINES = {
         id: 'godot',
         name: 'godot',
         displayName: 'Godot Engine',
-        status: 'coming-soon',
+        status: 'active',
         icon: '🤖',
-        description: 'GDScript support with scene and node manipulation',
+        description: 'Scene/node editing and project execution via the godot-mcp server',
         mcp: {
-            command: 'godot',
-            args: ['--headless', '--mcp'],
+            // Runs the community godot-mcp server straight from npm. On Windows the
+            // npx shim is a .cmd file, so it needs cmd.exe: cross-spawn launches the
+            // command without a shell.
+            command: process.platform === 'win32' ? 'cmd.exe' : 'npx',
+            args: process.platform === 'win32'
+                ? ['/c', 'npx', '-y', GODOT_MCP_PACKAGE]
+                : ['-y', GODOT_MCP_PACKAGE],
+            // GODOT_PATH is filled in at connect time by resolveGodotPath().
         },
         features: [
-            'GDScript editing',
-            'Scene manipulation',
+            'Scene creation and saving',
             'Node creation and modification',
-            'Resource management',
-            'Signal connections',
-            'Project settings',
+            'Sprite/texture loading',
+            'MeshLibrary export',
+            'Launch editor and run projects',
+            'Capture debug output',
+            'Project listing and info',
+            'Resource UID management (Godot 4.4+)',
         ],
+        docs: 'https://github.com/Coding-Solo/godot-mcp',
     },
     unity: {
         id: 'unity',

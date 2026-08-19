@@ -40,6 +40,20 @@ export async function readConfig() {
             }
             config.baseUrls = result;
         }
+        const preferences = record["preferences"];
+        if (typeof preferences === "object" && preferences !== null) {
+            const result = {};
+            const raw = preferences;
+            // Yalnızca boolean kabul ediliyor: elle düzenlenmiş dosyadaki "true"
+            // gibi bir metin, truthy olduğu için sessizce açık davranışa yol açardı.
+            if (typeof raw["autoApprove"] === "boolean") {
+                result.autoApprove = raw["autoApprove"];
+            }
+            if (typeof raw["web"] === "boolean")
+                result.web = raw["web"];
+            if (Object.keys(result).length > 0)
+                config.preferences = result;
+        }
         return config;
     }
     catch (error) {
@@ -109,6 +123,43 @@ export async function getBaseUrl(provider) {
         return envUrl.trim();
     const config = await readConfig();
     return config.baseUrls?.[provider];
+}
+// ---------------------------------------------------------------------------
+// Oturum tercihleri (/auto, /web)
+//
+// Tercihler cihazda kalır: sunucuya gönderilmez, üyelik kaydına yazılmaz.
+// Aynı dosyada (config.json) tutuluyorlar çünkü gizli değil, davranış ayarı.
+// ---------------------------------------------------------------------------
+/** Kayıtlı tercihler. Hiç yazılmamışsa boş nesne döner. */
+export async function readPreferences() {
+    return (await readConfig()).preferences ?? {};
+}
+/**
+ * Verilen tercihleri günceller; belirtilmeyen alanlar korunur.
+ *
+ * `null` bir alanı "seçilmemiş" hâline döndürür; böylece kullanıcı kaydı
+ * silip varsayılana dönebilir.
+ */
+export async function setPreferences(patch) {
+    const config = await readConfig();
+    const preferences = { ...config.preferences };
+    for (const [key, value] of Object.entries(patch)) {
+        if (value === undefined)
+            continue;
+        if (value === null) {
+            delete preferences[key];
+        }
+        else {
+            preferences[key] = value;
+        }
+    }
+    if (Object.keys(preferences).length === 0) {
+        delete config.preferences;
+    }
+    else {
+        config.preferences = preferences;
+    }
+    await writeConfig(config);
 }
 // ---------------------------------------------------------------------------
 // API key saklama

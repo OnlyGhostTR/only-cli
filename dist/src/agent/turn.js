@@ -12,7 +12,7 @@ import { formatWorkspaceContext, } from "../workspace/base.js";
 import { DiskWorkspace } from "../workspace/disk.js";
 import { parseResponse } from "./edits.js";
 import { buildSystemPrompt, buildUserMessage } from "./prompt.js";
-import { formatToolResults, MAX_TOOL_STEPS, MAX_MCP_TOOL_STEPS, parseToolRequests, runToolRequest, } from "./tools.js";
+import { formatToolResults, MAX_TOOL_STEPS, MAX_MCP_TOOL_STEPS, parseToolRequests, runToolRequest, looksLikeUnfulfilledToolPromise, TOOL_PROMISE_NUDGE, } from "./tools.js";
 /**
  * Reads resources to include in context.
  *
@@ -78,6 +78,8 @@ export async function runTurn(options) {
     let usage;
     let aborted = false;
     let toolSteps = 0;
+    // Tool sözü verip blok yazmayan modele tur başına yalnızca bir kez hatırlatma.
+    let nudgedForToolPromise = false;
     let webToolSteps = 0;
     let mcpToolSteps = 0;
     try {
@@ -171,19 +173,35 @@ export async function runTurn(options) {
             }
             const parsed = parseToolRequests(round.text);
             /*
-             * Asset search works even with `/web off`.
+             * `/web off` yalnızca web araçlarını kapatır.
              *
-             * Web tool refreshes model's general knowledge.
+             * MCP istekleri motor bağlantısına gider, internete değil; web kapalıyken
+             * de çalışmaları gerekiyor. Önceki hâlde filtre tüm istekleri düşürüyordu.
              */
-            const requests = parsed.requests.filter((request) => webEnabled);
+            const requests = parsed.requests.filter((request) => request.kind === "mcp" || webEnabled);
             // Note makes sense only if we're actually running the request; showing it
             // when there are none would be confusing.
             if (requests.length > 0) {
                 for (const note of parsed.notes)
                     ui.warn(note);
             }
-            if (requests.length === 0)
+            if (requests.length === 0) {
+                /*
+                 * Model "şimdi arıyorum" deyip blok yazmadıysa tur boşa gidiyor.
+                 * Bir kez hatırlatıp devam ediyoruz; ikinci kez denemiyoruz, aksi
+                 * halde inatçı bir modelle sonsuz döngüye girilir.
+                 */
+                if (!nudgedForToolPromise &&
+                    session.mcpConnection &&
+                    session.mcpConnection.tools.length > 0 &&
+                    looksLikeUnfulfilledToolPromise(round.text)) {
+                    nudgedForToolPromise = true;
+                    ui.hint('No tool block in reply; asking the model to actually call the tool.');
+                    session.addUserMessage(TOOL_PROMISE_NUDGE);
+                    continue;
+                }
                 break;
+            }
             // Separate limits for web and MCP tools
             const mcpRequests = requests.filter(r => r.kind === 'mcp');
             const webRequests = requests.filter(r => r.kind !== 'mcp');
@@ -264,11 +282,13 @@ export async function runTurn(options) {
         process.removeListener("SIGINT", onSigint);
     }
     const { edits } = parseResponse(full);
-    // Parse scene blocks only if target supports them. If model wrote one on
-    // disk target, that's a prompt deviation; tell user rather than silently
-    // ignoring.
-    for (const error of edits)
-        ui.warn(`Edit block issue — ${error}`);
+    /*
+     * Buradaki eski döngü `edits` üzerinde dönüp her düzenleme için
+     * "Edit block issue — [object Object]" yazdırıyordu: `parseResponse` bir hata
+     * listesi döndürmüyor (yalnızca `prose` ve `edits`), yani uyarı her geçerli
+     * blokta tetiklenen bir yanlış alarmdı. Kapanmamış bloklar zaten sessizce
+     * düz metne düşüyor, o yüzden raporlanacak bir hata koleksiyonu yok.
+     */
     if (usage) {
         ui.statusLine([ui.usageSummary(usage)]);
     }
@@ -344,6 +364,11 @@ async function streamOnce(options) {
             }
             else if (chunk.type === "done") {
                 usage = chunk.response.usage;
+                // Native tool çağrılarında akış hiç metin üretmiyor; çağrı yalnızca
+                // done yanıtında geliyor. Aksi halde tur boş metinle kapanır ve tool
+                // hiç çalışmaz.
+                if (!text && chunk.response.text)
+                    text = chunk.response.text;
             }
         }
         return { text, usage };

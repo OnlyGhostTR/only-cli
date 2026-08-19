@@ -50,7 +50,7 @@ Sohbet içi komutlar:
 
 MCP Engines:
   🎮 roblox-studio  - Full Roblox Studio integration
-  🤖 godot          - Coming soon
+  🤖 godot          - Scene/node editing and project execution (Godot 4)
   🎯 unity          - Planned
   ⚡ unreal         - Planned
 

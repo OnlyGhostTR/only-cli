@@ -167,6 +167,37 @@ export function parseToolRequests(text) {
     }
     return { requests, notes };
 }
+/**
+ * Model tool sözü verip bloğu yazmadı mı?
+ *
+ * Bazı modeller "aramaya başlıyorum" deyip turu bitiriyor; blok olmadığı için
+ * hiçbir şey çalışmıyor ve kullanıcı olmayan bir sonucu bekliyor. Bu durumu
+ * tespit edip bir kez dürtüyoruz. İstem kuralı tek başına yetmiyor.
+ *
+ * Dar tutuluyor: yalnızca gelecek zaman kipindeki niyet cümleleri. Yanlış
+ * pozitifin maliyeti fazladan bir tur, bu yüzden agresif desen aramıyoruz.
+ */
+export function looksLikeUnfulfilledToolPromise(text) {
+    const trimmed = text.trim();
+    if (!trimmed)
+        return false;
+    // Blok zaten varsa dürtmeye gerek yok.
+    if (/```onlycli:(tool|search|fetch)/.test(trimmed))
+        return false;
+    // Uzun açıklamalar niyet beyanı değil; kısa "şimdi yapıyorum" cümlelerini
+    // hedefliyoruz.
+    if (trimmed.length > 400)
+        return false;
+    const intent = /\b(i'?ll|i will|let me|i'?m going to|i am going to|i'?m about to)\b/i;
+    const intentTr = /(bakıyorum|arıyorum|listeliyorum|başlıyorum|başlatıyorum|çalıştırıyorum|tarıyorum|kontrol ediyorum|deniyorum|getiriyorum)/i;
+    return intent.test(trimmed) || intentTr.test(trimmed);
+}
+/** Tool sözü tutulmadığında modele gönderilen tek seferlik hatırlatma. */
+export const TOOL_PROMISE_NUDGE = [
+    "You said you would use a tool but your reply contained no tool block, so nothing ran.",
+    "Write the tool block now, in this reply, using the exact format from the protocol.",
+    "If no available tool fits the request, say so plainly instead of promising an action.",
+].join(" ");
 export async function runToolRequest(request, options = {}) {
     try {
         // Handle MCP tool calls

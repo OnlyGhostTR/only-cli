@@ -1,5 +1,5 @@
-import { readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 /** Context'e alınacak tek dosya için üst sınır (karakter). */
 const MAX_FILE_CHARS = 100_000;
 /** Otomatik proje taramasında toplam üst sınır. */
@@ -177,6 +177,15 @@ export function formatContext(files) {
 /** Onay alındıktan sonra dosyaya yazar. */
 export async function writeFileSafe(path, content, cwd = process.cwd()) {
     const absolute = resolveInsideCwd(path, cwd);
+    /*
+     * Üst klasörleri de açıyoruz.
+     *
+     * Model yeni bir proje iskeleti kurarken (örn. kup-testi/project.godot)
+     * hedef klasör henüz yok; sadece writeFile çağırmak ENOENT veriyordu ve
+     * kullanıcı onayı verdikten sonra yazma başarısız oluyordu. resolveInsideCwd
+     * sandbox kontrolünü zaten yaptı, yani burada cwd dışına klasör açılamaz.
+     */
+    await mkdir(dirname(absolute), { recursive: true });
     await writeFile(absolute, content, "utf8");
     return toPosix(relative(resolve(cwd), absolute));
 }

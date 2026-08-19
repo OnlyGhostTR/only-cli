@@ -11,6 +11,20 @@ import OpenAI from "openai";
 import { kindFromStatus, normalizeBaseUrl, ProviderError, } from "./base.js";
 const DEFAULT_MODEL = "gpt-5";
 const DEFAULT_MAX_TOKENS = 4096;
+/**
+ * Native tool çağrısını turn.ts'in beklediği `TOOL_CALL:` metnine çevirir.
+ *
+ * Akış modunda tool çağrıları içerik yerine delta olarak geliyor; metin boş
+ * kaldığı için üst katman çağrıyı göremiyordu. `chat()` ile aynı sözleşmeyi
+ * kullanıyoruz. Tek çağrı taşınır: turn.ts turda tek MCP isteği işliyor.
+ * Test edilebilmesi için dışa açık.
+ */
+export function encodeToolCall(toolCalls) {
+    const call = toolCalls.find((entry) => entry?.function.name);
+    if (!call)
+        return null;
+    return `TOOL_CALL:${call.function.name}:${call.function.arguments || "{}"}`;
+}
 export class OpenAIProvider {
     id = "openai";
     displayName;
@@ -171,10 +185,13 @@ export class OpenAIProvider {
                     };
                 }
             }
+            // Native tool çağrısı geldiyse metin yerine onu döndürüyoruz: turn.ts
+            // `TOOL_CALL:` önekini görüp MCP isteğini çalıştırıyor.
+            const encodedCall = encodeToolCall(toolCalls);
             yield {
                 type: "done",
                 response: {
-                    text,
+                    text: encodedCall ?? text,
                     model,
                     ...(usage ? { usage } : {}),
                     ...(stopReason ? { stopReason } : {}),

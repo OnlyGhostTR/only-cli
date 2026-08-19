@@ -200,7 +200,7 @@ async function runSlash(name, args, session, hooks) {
             await switchProvider(session, args[0], hooks.setProvider);
             return "continue";
         case "model":
-            switchModel(session, args[0]);
+            await switchModel(session, args[0]);
             return "continue";
         case "baseurl":
             await switchBaseUrl(session, args[0], hooks.setProvider);
@@ -209,7 +209,7 @@ async function runSlash(name, args, session, hooks) {
             await handleApiKeyCommand(session, hooks.setProvider);
             return "continue";
         case "auto":
-            toggleAuto(session, args[0]);
+            await toggleAuto(session, args[0]);
             return "continue";
         case "web":
             await toggleWeb(session, args[0]);
@@ -444,6 +444,15 @@ async function switchProvider(session, target, setProvider) {
         // (openrouter.ai)"); static label would hide where we're connecting.
         session.providerLabel = next.displayName;
         session.model = model;
+        // Remembered as the default for the next run; the user picked it
+        // explicitly, and `--provider` still overrides it per run.
+        try {
+            const { setDefaultProvider } = await import("../config/store.js");
+            await setDefaultProvider(normalized);
+        }
+        catch (error) {
+            ui.hint(`Provider not saved for next session: ${error instanceof Error ? error.message : String(error)}`);
+        }
         ui.success(`${session.providerLabel} / ${session.model}`);
         if (next.baseUrl)
             ui.info(`Endpoint: ${next.baseUrl}`);
@@ -456,12 +465,22 @@ async function switchProvider(session, target, setProvider) {
         throw error;
     }
 }
-function switchModel(session, target) {
+async function switchModel(session, target) {
     if (!target) {
         ui.info(`Current model: ${session.model}`);
         return;
     }
     session.model = target;
+    // Saved per provider, matching the config shape: switching back to a provider
+    // should restore the model that was last used with it, not a global last-set
+    // value that may not even exist on that provider.
+    try {
+        const { setModel } = await import("../config/store.js");
+        await setModel(session.providerId, target);
+    }
+    catch (error) {
+        ui.hint(`Model not saved for next session: ${error instanceof Error ? error.message : String(error)}`);
+    }
     ui.success(`Model: ${session.model}`);
 }
 /**
@@ -616,7 +635,23 @@ async function handleApiKeyCommand(session, setProvider) {
     }
     ui.blank();
 }
-function toggleAuto(session, target) {
+/**
+ * Writes a session preference to the local config.
+ *
+ * Failure is not fatal: the in-memory toggle already took effect, and a
+ * read-only home directory should not break the chat loop. We do tell the user,
+ * otherwise they would expect the setting to survive a restart when it won't.
+ */
+async function persistPreference(patch) {
+    try {
+        const { setPreferences } = await import("../config/store.js");
+        await setPreferences(patch);
+    }
+    catch (error) {
+        ui.hint(`Preference not saved for next session: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+async function toggleAuto(session, target) {
     if (target === undefined) {
         session.autoApprove = !session.autoApprove;
     }
@@ -624,6 +659,8 @@ function toggleAuto(session, target) {
         const on = ["on", "açık", "acik", "true", "1", "evet"].includes(target.toLowerCase());
         session.autoApprove = on;
     }
+    // Persisted on this device only, so the choice survives a restart.
+    await persistPreference({ autoApprove: session.autoApprove });
     if (session.autoApprove) {
         ui.warn("Auto-apply ON: changes will be written without asking.");
     }
@@ -645,9 +682,11 @@ async function toggleWeb(session, target) {
         session.webEnabled = ["on", "açık", "acik", "true", "1", "evet"].includes(target.toLowerCase());
     }
     if (!session.webEnabled) {
+        await persistPreference({ web: false });
         ui.success("Web access OFF: model will answer from its own knowledge.");
         return;
     }
+    await persistPreference({ web: true });
     const { resolveSearchSource } = await import("../web/search.js");
     const { SEARCH_SOURCE_LABELS } = await import("../web/types.js");
     const source = await resolveSearchSource();
@@ -682,13 +721,22 @@ export async function createSession(options) {
         ...(options.model ? { model: options.model } : {}),
         ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
     });
+    /*
+     * Preference precedence: this run's flag > value saved on this device >
+     * built-in default. Flags stay one-shot (they are not written back), so a
+     * single `--yes` run doesn't silently make auto-apply permanent.
+     */
+    const { readPreferences } = await import("../config/store.js");
+    const preferences = await readPreferences();
+    const autoApprove = options.autoApprove ?? preferences.autoApprove ?? false;
+    const web = options.web ?? preferences.web ?? true;
     const session = new Session({
         cwd: options.cwd,
         providerId: provider.id,
         providerLabel: provider.displayName,
         model,
-        autoApprove: options.autoApprove === true,
-        ...(options.web !== undefined ? { web: options.web } : {}),
+        autoApprove,
+        web,
     });
     return { session, provider };
 }
@@ -741,15 +789,46 @@ async function handleMCPCommand(args, hooks) {
         case 'list':
             showMCPEngines();
             return;
-        case 'disconnect':
-            ui.info('Disconnecting from engine...');
-            // TODO: Implement disconnect logic
+        case 'disconnect': {
+            const active = hooks.session.mcpConnection;
+            if (!active) {
+                ui.info('No active engine connection.');
+                return;
+            }
+            const activeEngine = getEngine(active.engine);
+            const label = activeEngine?.displayName ?? active.engine;
+            ui.info(`Disconnecting from ${label}...`);
+            const { disconnectFromEngine } = await import('../engines/mcp-client.js');
+            try {
+                await disconnectFromEngine(active);
+            }
+            catch (error) {
+                // Sunucu çökmüş olabilir; oturumu yine de temizliyoruz, aksi halde
+                // kullanıcı ölü bir bağlantıya takılı kalıyor.
+                ui.warn(`Server did not shut down cleanly: ${error instanceof Error ? error.message : 'unknown error'}`);
+            }
+            finally {
+                active.connected = false;
+                hooks.session.mcpConnection = null;
+            }
             ui.success('Disconnected. Returned to disk mode.');
             return;
-        case 'status':
-            ui.info('MCP Status: Not connected');
-            // TODO: Show current connection status
+        }
+        case 'status': {
+            const active = hooks.session.mcpConnection;
+            if (!active || !active.connected) {
+                ui.info('MCP Status: Not connected');
+                ui.hint('Connect with /mcp <engine> (see /mcp list)');
+                return;
+            }
+            const activeEngine = getEngine(active.engine);
+            ui.info(`MCP Status: Connected to ${activeEngine?.displayName ?? active.engine}`);
+            ui.info(`Available tools: ${active.tools.length}`);
+            const names = active.tools.map((tool) => tool.name);
+            if (names.length > 0)
+                ui.hint(names.join(', '));
             return;
+        }
         default:
             // Treat as engine name
             const engineId = subcommand.toLowerCase();
@@ -766,19 +845,45 @@ async function handleMCPCommand(args, hooks) {
             }
             if (engine.status !== 'active') {
                 ui.failure(`${engine.displayName} is not yet available (${engine.status})`);
-                ui.hint('Only Roblox Studio is currently supported');
+                ui.hint('Currently supported: Roblox Studio, Godot');
                 return;
             }
             // Connect to engine
             ui.blank();
+            // Godot's MCP server needs to know where the Godot binary lives. Auto
+            // detection covers the common cases; GODOT_PATH overrides it.
+            let engineToConnect = engine;
+            if (engine.id === 'godot') {
+                const { resolveGodotPath } = await import('../engines/godot.js');
+                const godotPath = await resolveGodotPath();
+                if (!godotPath) {
+                    ui.failure('Godot executable not found.');
+                    ui.blank();
+                    ui.hint('Set the GODOT_PATH environment variable to your Godot binary:');
+                    ui.hint('  Windows: setx GODOT_PATH "C:\\path\\to\\Godot_v4.x-stable_win64.exe"');
+                    ui.hint('  macOS/Linux: export GODOT_PATH=/path/to/godot');
+                    ui.blank();
+                    return;
+                }
+                ui.hint(`Godot: ${godotPath}`);
+                engineToConnect = {
+                    ...engine,
+                    mcp: {
+                        ...engine.mcp,
+                        env: { ...engine.mcp.env, GODOT_PATH: godotPath },
+                    },
+                };
+            }
             ui.info(`Connecting to ${engine.displayName}...`);
             try {
-                const connection = await connectToEngine(engine);
+                const connection = await connectToEngine(engineToConnect);
                 ui.success(`✓ Connected to ${engine.displayName}`);
                 ui.info(`Available tools: ${connection.tools.length}`);
                 ui.blank();
                 ui.hint('The AI can now control the game engine directly.');
-                ui.hint('Try: "create a red part at position 0,10,0"');
+                ui.hint(engine.id === 'godot'
+                    ? 'Try: "list my Godot projects" or "run the project in ./my-game"'
+                    : 'Try: "create a red part at position 0,10,0"');
                 ui.blank();
                 // Store connection in session
                 hooks.session.mcpConnection = connection;
@@ -804,6 +909,11 @@ async function handleMCPCommand(args, hooks) {
                     ui.hint('  1. Roblox Studio is open');
                     ui.hint('  2. A place is open in Studio');
                     ui.hint('  3. MCP server is enabled (should be automatic)');
+                }
+                if (engine.id === 'godot') {
+                    ui.hint('  1. Node.js and npx are on your PATH');
+                    ui.hint('  2. The first run can be slow: npx downloads the MCP server');
+                    ui.hint('  3. GODOT_PATH points to a working Godot 4 binary');
                 }
                 ui.blank();
             }

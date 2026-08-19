@@ -68,6 +68,23 @@ function buildMCPToolProtocol(tools) {
             : 'no parameters';
         return `  - **${tool.name}**: ${tool.description}\n    Parameters: ${params}`;
     }).join('\n');
+    // Örnek, gerçekten bağlı olan motorun ilk aracından üretiliyor. Sabit bir
+    // Roblox örneği bırakmak Godot'ya bağlıyken modeli var olmayan bir araca
+    // yönlendiriyordu.
+    const example = tools[0];
+    const exampleArgs = example?.inputSchema?.properties
+        ? Object.fromEntries(Object.entries(example.inputSchema.properties)
+            .slice(0, 2)
+            .map(([key, value]) => [
+            key,
+            value.type === 'number' || value.type === 'integer'
+                ? 0
+                : value.type === 'boolean'
+                    ? true
+                    : `<${key}>`,
+        ]))
+        : {};
+    const exampleBlock = JSON.stringify({ toolName: example?.name ?? '<tool name>', arguments: exampleArgs }, null, 2);
     return `# Game Engine Tools Available
 
 You are connected to a game engine with ${tools.length} tools available:
@@ -77,17 +94,40 @@ ${toolDescriptions}
 To use a tool, write a tool call block with JSON arguments:
 
 \`\`\`onlycli:tool
-{
-  "toolName": "execute_luau",
-  "arguments": {
-    "studio_id": "...",
-    "datamodel_type": "Edit",
-    "code": "local part = Instance.new(\\"Part\\")\\npart.Parent = workspace"
-  }
-}
+${exampleBlock}
 \`\`\`
 
+## Deciding when to use a tool
+
+Work through this in order before you answer an engine-related request:
+
+1. Does one of the tools listed above do exactly this? Then use it. Never ask the
+   user to perform an action you have a tool for.
+2. Does the request depend on facts about the engine or the project (version,
+   which projects exist, project settings, debug output)? Get those facts with a
+   tool instead of guessing or asking the user.
+3. Is there no tool for it? Say in one sentence which capability is missing, then
+   fall back to editing the project's files directly with the file write protocol
+   above. Missing capabilities are normal: this tool set can create things but
+   often cannot modify or remove what already exists.
+4. Would both a tool and a hand-written file work? Prefer the tool. The engine
+   writes correct ids, formatting and metadata; a hand-written file may not load.
+
+## Working on files the engine owns
+
+- Tools write straight to disk. Once a tool has run, any earlier copy of that file
+  in your context is stale — never rewrite a file from a stale copy.
+- You cannot open files yourself. If you must edit an engine file you haven't been
+  given, ask for it ONCE with \`/file <path>\` and stop there. Do not repeat the
+  request, and do not restate your reasoning about it in later turns.
+- Before creating something, consider whether it already exists. Creating a
+  duplicate usually succeeds silently under a renamed copy, which is worse than
+  refusing: say what already exists and ask which one the user wants.
+- Follow each parameter's own description for path format. Tool paths are engine
+  paths and are not the workspace-relative paths used in file write blocks.
+
 IMPORTANT: 
+- Only use the tool names listed above; no other tool exists.
 - Use JSON format for tool calls (not YAML)
 - Escape quotes in strings with backslash
 - Use \\n for newlines in code strings
@@ -95,7 +135,8 @@ IMPORTANT:
 - Don't write code files unless specifically asked
 - **ALWAYS announce what you're doing BEFORE calling a tool** (e.g., "I'll create a new part in the workspace...")
 - **ALWAYS explain the result AFTER a tool call completes** (e.g., "Successfully created part with name 'NewPart'")
-- Never call tools silently - user should understand each step you take`;
+- Never call tools silently - user should understand each step you take
+- Never say you are "starting" or "running" a search/scan unless the SAME reply contains a tool block. Announcing without a block does nothing: the turn ends and no tool runs.`;
 }
 /** User message: request + file context. */
 export function buildUserMessage(options) {
