@@ -1,6 +1,6 @@
 {
   "name": "onlycli",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "description": "BYOK AI agent CLI - Terminal'den AI ile kod yazın",
   "type": "module",
   "license": "MIT",

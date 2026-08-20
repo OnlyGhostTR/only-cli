@@ -2,11 +2,11 @@
  * Interactive onboarding flow - first-time setup
  */
 import { select, input } from '@inquirer/prompts';
-import { printLogo, printProgress, printBox, printCommand } from './ascii.js';
+import { printLogo, printProgress, printBox, printCommand, printEngine } from './ascii.js';
 import { initMembership } from '../membership/manager.js';
 import { setApiKey, hasApiKey } from '../config/store.js';
+import { getAllEngines } from '../engines/registry.js';
 import * as ui from '../ui/components.js';
-import { theme } from '../ui/theme.js';
 /**
  * Run the complete onboarding flow
  */
@@ -115,10 +115,14 @@ export async function runOnboarding() {
     printCommand('onlycli status', 'Check membership status');
     ui.blank();
     ui.info('Supported engines:');
-    console.log(`  🎮 ${theme.ok('roblox-studio')}  ${theme.muted('✓ Full integration')}`);
-    console.log(`  🤖 ${theme.muted('godot')}           ${theme.muted('🔄 Coming soon')}`);
-    console.log(`  🎯 ${theme.muted('unity')}           ${theme.muted('📋 Planned')}`);
-    console.log(`  ⚡ ${theme.muted('unreal')}          ${theme.muted('📋 Planned')}`);
+    // Read the list from the engine registry instead of hardcoding it. The old
+    // hardcoded block was written for 2.0.2 and still advertised Godot as
+    // "coming soon" after it became a fully active engine, so setup contradicted
+    // both `onlycli status` and `/mcp`. printEngine is the same renderer those two
+    // use, so all three now report identical status labels from one source.
+    for (const engine of getAllEngines()) {
+        printEngine(engine.displayName, engine.status, engine.icon);
+    }
     ui.blank();
     ui.hint('Need help? Run: onlycli help');
     ui.blank();

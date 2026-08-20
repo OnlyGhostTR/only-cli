@@ -10,7 +10,7 @@
  * Değiştirirken `package.json` içindeki `version` alanını da aynı değere
  * getirin.
  */
-export const VERSION = "2.0.3";
+export const VERSION = "2.0.4";
 /** Üyelik sunucusunun istemciyi tanıması için kullanılan User-Agent. */
 export const USER_AGENT = `OnlyCLI/${VERSION}`;
 //# sourceMappingURL=version.js.map
