@@ -50,6 +50,31 @@ npm link          # makes `onlycli` available everywhere
 `npm unlink -g onlycli`. If the command is not found, restart the terminal — PATH changes
 do not apply to already-open sessions.
 
+### If `onlycli` is not found after a global install
+
+`npm install -g` writes the command into npm's own global bin directory but does not put
+that directory on your PATH. When it is missing, the install still reports success and the
+shell then says `command not found: onlycli` — the package is fine, only the lookup path
+is. (`pnpm add -g` does not hit this, because `pnpm setup` writes its bin directory into
+your shell profile.)
+
+The installer detects this and prints the exact directory plus the line to add. To have it
+written for you:
+
+```bash
+ONLYCLI_FIX_PATH=1 npm install -g onlycli
+```
+
+That appends a PATH line to `~/.zshrc`, `~/.bashrc` (`~/.bash_profile` on macOS), or
+`~/.config/fish/config.fish`, depending on `$SHELL`. Open a new terminal afterwards. To
+check the directory yourself:
+
+```bash
+npm prefix -g      # the command lives in <prefix>/bin, or <prefix> on Windows
+```
+
+Set `ONLYCLI_SKIP_POSTINSTALL=1` to skip the check entirely.
+
 During development, skip the build with `npm run dev` (chat) or
 `npm run dev -- agent "..."`.
 
@@ -288,6 +313,8 @@ Other environment variables:
 | `GODOT_PATH` | Path to the Godot executable. |
 | `BRAVE_API_KEY`, `TAVILY_API_KEY` | Web search backends. |
 | `ONLYCLI_DEBUG=1` | Print stack traces on error. |
+| `ONLYCLI_FIX_PATH=1` | During `npm install -g`, write the PATH line into your shell profile. |
+| `ONLYCLI_SKIP_POSTINSTALL=1` | Skip the post-install PATH check. |
 
 ## Security behavior
 

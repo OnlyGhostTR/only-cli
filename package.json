@@ -1,6 +1,6 @@
 {
   "name": "onlycli",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "description": "BYOK AI agent CLI - Terminal'den AI ile kod yazın",
   "type": "module",
   "license": "MIT",
@@ -19,6 +19,7 @@
     "dev": "tsx bin/onlycli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "postinstall": "node dist/src/scripts/postinstall.js || exit 0",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
